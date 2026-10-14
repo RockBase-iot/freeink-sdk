@@ -1,6 +1,7 @@
 #include <BoardConfig.h>
 
-#if FREEINK_DEVICE_MURPHY_M4 || FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_MURPHY_M4 || FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_METALIO_EINK4 || \
+    FREEINK_DEVICE_NM_EPD_420
 #include "CrossMuxSsd1677Driver.h"
 
 #include <BoardConfig.h>
@@ -160,6 +161,37 @@ static const CrossMuxSsd1677Config& crossmuxSsd1677MetalioConfig() {
     value.cleanPolicy = CrossMuxSsd1677CleanPolicy::BlackPulse;
     return value;
   }();
+  return cfg;
+}
+
+// NM-EPD-420 (RockBase IoT) — Good Display GYE042A87, 400x300 B/W, SSD1683.
+// Unlike the X4/GDEQ0426T82 glass, this panel runs from the OTP waveform selected
+// by the vendor update sequences (GxEPD2's GxEPD2_420_GYE042A87):
+//   INIT:  0x12 SWRESET, 0x01 MUX=299 scan=0, 0x3C=0x01, 0x18=0x80
+//   FULL:  0x21=0x40,0x00, 0x1A=0x64, 0x22=0xD7, 0x20
+//   PART:  0x21=0x00,0x00, 0x22=0xFC, 0x20
+// Only the sequence bytes are supplied here; the shared driver writes the rest
+// from the profile geometry. Booster soft-start is shared with the SSD1677-family
+// default (same OTP-driven family). PENDING HARDWARE VALIDATION: the grayscale
+// LUT is still the X4 copy, so AA overlays should be re-validated (or a panel LUT
+// dropped in) on real hardware.
+static const CrossMuxSsd1677Config& crossmuxSsd1677NmEpd420Config() {
+  static const CrossMuxSsd1677Config cfg = {
+      {0xAE, 0xC7, 0xC3, 0xC0, 0x80},  // booster soft-start (SSD1677/1683 family default)
+      0x00,                            // driverOutputScan: GxEPD2 writes scan byte 0x00 for this panel
+      0x01,                            // borderWaveformInit: GxEPD2 writes 0x3C = 0x01
+      0x64,                            // halfRefreshTemp (unused once fullSeqOverride loads temperature)
+      lut_grayscale,                   // TODO(hardware): panel-specific LUT for AA overlays
+      0xD7,  // fullSeqOverride: GxEPD2 GYE042A87 FULL sequence (loads temperature, selects OTP waveform)
+      0xFC,  // fastSeqOverride: GxEPD2 GYE042A87 PARTIAL/DU sequence
+      0x00,  // halfSeqOverride: use fullSeqOverride
+      0x01,  // borderWaveformFull
+      0x01,  // borderWaveformFast
+      0x00,  // borderWaveformHalf: use borderWaveformFull
+      0x01,  // borderWaveformGray: keep the init border while a custom LUT is loaded
+      true,  // grayPowerUpFirst: the vendor sequences power down after each refresh
+      false, // absoluteGrayscale: local panel LUT not validated
+  };
   return cfg;
 }
 
@@ -976,6 +1008,8 @@ static const CrossMuxSsd1677Config& crossmuxSsd1677ActiveConfig() {
       return crossmuxSsd1677Waveshare397Config();
     case BoardConfig::Board::MetalioEink4:
       return crossmuxSsd1677MetalioConfig();
+    case BoardConfig::Board::NmEpd420:
+      return crossmuxSsd1677NmEpd420Config();
       // X4 Pro runs on the stock X4/GDEQ0426T82 config — same controller and panel
       // class, confirmed painting on hardware. No custom LUT or drive voltages needed.
       // Layers the fast-DU shortcut only when the build opts in (crossmuxSsd1677X4ProConfig).

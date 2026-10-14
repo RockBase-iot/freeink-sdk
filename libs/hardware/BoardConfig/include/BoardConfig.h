@@ -92,15 +92,22 @@
 #ifndef FREEINK_DEVICE_WS397
 #define FREEINK_DEVICE_WS397 0
 #endif
+// NM-EPD-420 — RockBase IoT ESP32-S3 board, 4.2" 400x300 SSD1683-class
+// black/white EPD, two-button (USER/BOOT) input, SPI microSD. See the
+// NM_EPD_420 profile below.
+#ifndef FREEINK_DEVICE_NM_EPD_420
+#define FREEINK_DEVICE_NM_EPD_420 0
+#endif
 
 // --- 2) Coherence: exactly one MCU family, at least one device ---------------
 #if !(FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3 || FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC ||            \
       FREEINK_DEVICE_M5 || FREEINK_DEVICE_MURPHY || FREEINK_DEVICE_DELINK || FREEINK_DEVICE_LILYGO ||          \
       FREEINK_DEVICE_M5PAPER || FREEINK_DEVICE_STICKY || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_PAPERS3 || \
       FREEINK_DEVICE_MURPHY_M4 || FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_WAVESHARE_EPAPER_397 ||             \
-      FREEINK_DEVICE_ONEPAGE || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_READPICO || FREEINK_DEVICE_WS397)
+      FREEINK_DEVICE_ONEPAGE || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_READPICO || FREEINK_DEVICE_WS397 || \
+      FREEINK_DEVICE_NM_EPD_420)
 #error \
-    "FreeInk: no device selected. Pass at least one -DFREEINK_DEVICE_<NAME> (X4, X3, X4PRO, X4CLASSIC, M5, MURPHY, DELINK, LILYGO, M5PAPER, STICKY, PAPERMONO, PAPERS3, MURPHY_M4, EEGO_A4, WAVESHARE_EPAPER_397, METALIO_EINK4, ONEPAGE, READPICO, WS397) in your build env — see platformio.sample.ini."
+    "FreeInk: no device selected. Pass at least one -DFREEINK_DEVICE_<NAME> (X4, X3, X4PRO, X4CLASSIC, M5, MURPHY, DELINK, LILYGO, M5PAPER, STICKY, PAPERMONO, PAPERS3, MURPHY_M4, EEGO_A4, WAVESHARE_EPAPER_397, METALIO_EINK4, ONEPAGE, READPICO, WS397, NM_EPD_420) in your build env — see platformio.sample.ini."
 #endif
 // Each device belongs to one MCU family; a binary targets exactly one. X3/X4 are
 // ESP32-C3; M5 PaperColor/Murphy/de-link/LilyGo are ESP32-S3; M5Paper v1.1 is the
@@ -112,7 +119,8 @@
   (FREEINK_DEVICE_M5 || FREEINK_DEVICE_MURPHY || FREEINK_DEVICE_DELINK || FREEINK_DEVICE_LILYGO ||          \
    FREEINK_DEVICE_STICKY || FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC || FREEINK_DEVICE_PAPERMONO || \
    FREEINK_DEVICE_PAPERS3 || FREEINK_DEVICE_MURPHY_M4 || FREEINK_DEVICE_EEGO_A4 ||                          \
-   FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_READPICO || FREEINK_DEVICE_WS397)
+   FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_READPICO || FREEINK_DEVICE_WS397 || \
+   FREEINK_DEVICE_NM_EPD_420)
 #define FREEINK_MCU_ESP32 (FREEINK_DEVICE_M5PAPER)
 #if (FREEINK_MCU_C3 + FREEINK_MCU_C61 + FREEINK_MCU_S3 + FREEINK_MCU_ESP32) != 1
 #error \
@@ -128,7 +136,8 @@
 // references — see docs/xteink-x4pro-support.md.
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_DELINK || FREEINK_DEVICE_STICKY || FREEINK_DEVICE_X4PRO || \
     FREEINK_DEVICE_X4CLASSIC || FREEINK_DEVICE_MURPHY_M4 || FREEINK_DEVICE_WAVESHARE_EPAPER_397 || \
-    FREEINK_DEVICE_ONEPAGE || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_WS397 || FREEINK_DEVICE_PAPERMONO
+    FREEINK_DEVICE_ONEPAGE || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_WS397 || FREEINK_DEVICE_PAPERMONO || \
+    FREEINK_DEVICE_NM_EPD_420
 #define FREEINK_DRIVER_SSD1677 1
 #else
 #define FREEINK_DRIVER_SSD1677 0
@@ -465,6 +474,9 @@ enum class Board : uint8_t {
              // 3 capacitive key zones, SC7A20H accelerometer, CW32L010 PMU
   WsEpaper397,  // SDK-managed Waveshare power and ordinary buttons.
   MetalioEInk4,  // Upstream identity; local MetalioEink4 retains its calibration.
+  // NM-EPD-420: RockBase IoT ESP32-S3 N16R8, 4.2" 400x300 SSD1683-class B/W
+  // EPD, two-button (USER/BOOT) input, SPI microSD, battery ADC divider.
+  NmEpd420,
 };
 
 // How the board reports button presses.
@@ -1978,6 +1990,63 @@ constexpr BoardProfile METALIO_EINK4 = {
 static_assert(METALIO_EINK4.displayWidth / 8 * METALIO_EINK4.displayHeight == 48000);
 static_assert(METALIO_EINK4.sdmmc.busWidth == 1 && METALIO_EINK4.sdmmc.d3 == PIN_UNASSIGNED);
 
+// --- NM-EPD-420 — RockBase IoT, ESP32-S3 (N16R8) ---------------------------
+// 4.2" 400x300 black/white EPD (Good Display GYE042A87, SSD1683-class
+// controller). SSD1683 shares the SSD1677-family command set (0x12 SWRESET,
+// 0x01 driver-output-control, 0x11 data entry, 0x44/0x45 ranges, 0x4E/0x4F
+// counters, 0x24/0x26 RAM, 0x21/0x22 update ctrl, 0x20 activation, 0x1C/0x22
+// sequences), so the board reuses CrossMuxSsd1677Driver and only supplies a
+// panel-specific CrossMuxSsd1677Config (see crossmuxSsd1677NmEpd420Config()).
+//
+// Pin map is taken from the RockBase-iot/biscuit NM-EPD-420 port
+// (lib/hal/NmEpd420Pins.h). The panel is a single-buffer 1-bpp 15,000-byte
+// framebuffer, which is well inside the ESP32-S3 (with 8 MB PSRAM) budget.
+//
+// Input: two active-low buttons, USER (GPIO45) and BOOT (GPIO0). The SDK's
+// DigitalTwoButton style reads only up/down and synthesizes back/confirm/power
+// from short/hold combinations, matching biscuit's two-button control model.
+//
+// Storage: microSD on the peripheral SPI bus (SCK9/MOSI10/MISO11/CS7) — NOT
+// SDMMC. Battery: ADC on GPIO3 behind an onboard /2 divider, gated by an
+// ADC-enable rail on GPIO43.
+constexpr BoardProfile NM_EPD_420 = {
+    Board::NmEpd420,
+    "nm_epd_420",
+    InputStyle::DigitalTwoButton,
+    DisplayController::SSD1677,  // SSD1683-class; same register family
+    400,
+    300,
+    {2, 1, 46, 4, 5, 6, PIN_UNASSIGNED},  // EPD: SCK2 MOSI1 CS46 DC4 RST5 BUSY6 (no power-enable GPIO)
+    10000000,  // displaySpiHz: conservative start; the panel and SD share SPI wiring (raise after validation)
+    // microSD on the peripheral SPI bus. separateSpi=true so the SD bus is its own
+    // controller; powerEnable unassigned (the card is always powered on this board).
+    {9, 11, 10, 7, PIN_UNASSIGNED, true, 0},
+    // Two active-low buttons. DigitalTwoButton reads only up/down: USER = up (45),
+    // BOOT = down (0). back/confirm/power come from holds in the input layer, so
+    // those InputPins stay unassigned.
+    {PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, 45, 0, PIN_UNASSIGNED, false},
+    3,               // batteryAdc: GPIO3 (BATT_ADC) behind the onboard /2 divider
+    PIN_UNASSIGNED,  // batteryChargeStatus: not wired to a GPIO on this board
+    2.0f,            // batteryDividerMultiplier
+    PIN_UNASSIGNED,  // usbDetect: not verified
+    NO_TOUCH,
+    NO_FRONTLIGHT,
+    NO_AUDIO,  // ES8311 codec is present on the board but unused by the reader
+    NO_LEDS,
+    NO_FLIP,   // panel mount transform pending hardware validation
+    NO_SDMMC,  // microSD is SPI, not SDMMC
+    NO_GAUGE,  // battery comes from the ADC divider, not an I2C fuel gauge
+    NO_MIC,
+    {PIN_UNASSIGNED, PIN_UNASSIGNED, 0, 0, 0, 0, 0, RtcType::None, ImuType::None},
+    1.0f,  // uiScale: 400x300 panel, keep the button-era theme metrics
+    // The battery ADC divider is gated by GPIO43 (ADC_EN); latch it HIGH through
+    // boot/sleep so the divider is always readable. PENDING HARDWARE VALIDATION:
+    // confirm GPIO43 has no other boot-time role before flashing.
+    {43, PIN_UNASSIGNED, PIN_UNASSIGNED, false}};
+
+static_assert(NM_EPD_420.displayWidth / 8 * NM_EPD_420.displayHeight == 15000,
+              "NM-EPD-420 framebuffer must be 15,000 bytes (400/8 x 300)");
+
 // --- Read Pico (RDP-G01-W) — ESP32-S3 N16R8, E0470A01 684x1216 raw-parallel EPD
 // (16-bit bus, SY7636A rails behind an FCA9555), CST836U touch + 3 capacitive
 // key zones, SC7A20H accelerometer, CW32L010 PMU, 1-bit SDMMC, GPIO2 buzzer.
@@ -2123,7 +2192,9 @@ constexpr uint32_t MAX_FRAMEBUFFER_BYTES =
 // Compile-time default device — the profile ACTIVE starts as. With a single
 // device in the build this is the only device; with several same-MCU devices it
 // is the boot default until the consumer calls selectDevice().
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_NM_EPD_420
+constexpr BoardProfile DEFAULT_DEVICE = NM_EPD_420;
+#elif FREEINK_DEVICE_METALIO_EINK4
 constexpr BoardProfile DEFAULT_DEVICE = METALIO_EINK4;
 #elif FREEINK_DEVICE_WS397
 constexpr BoardProfile DEFAULT_DEVICE = WS_EPAPER_397;
@@ -2274,6 +2345,11 @@ inline bool selectDevice(Board which) {
       ACTIVE = WS_EPAPER_397;
       break;
 #endif
+#if FREEINK_DEVICE_NM_EPD_420
+    case Board::NmEpd420:
+      ACTIVE = NM_EPD_420;
+      break;
+#endif
     default:
       return false;
   }
@@ -2301,6 +2377,7 @@ inline bool isWaveshareEpaper397() { return ACTIVE.board == Board::WaveshareEpap
 inline bool isOnePage() { return ACTIVE.board == Board::OnePage; }
 inline bool isReadPico() { return ACTIVE.board == Board::ReadPico; }
 inline bool isWsEpaper397() { return ACTIVE.board == Board::WsEpaper397; }
+inline bool isNmEpd420() { return ACTIVE.board == Board::NmEpd420; }
 inline bool hasTouch() { return ACTIVE.touch.controller != TouchController::None; }
 inline bool hasHomeKey() { return ACTIVE.touch.hasHomeKey; }
 inline bool hasPwmFrontlight() { return ACTIVE.frontlight.gpio != PIN_UNASSIGNED || ACTIVE.frontlight.viaPm1Pwm; }
