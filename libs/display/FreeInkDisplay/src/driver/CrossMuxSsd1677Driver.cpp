@@ -191,6 +191,10 @@ static const CrossMuxSsd1677Config& crossmuxSsd1677NmEpd420Config() {
       0x01,  // borderWaveformGray: keep the init border while a custom LUT is loaded
       true,  // grayPowerUpFirst: the vendor sequences power down after each refresh
       false, // absoluteGrayscale: local panel LUT not validated
+      0x03,  // powerOffSequence (default)
+      0x00,  // borderWaveformPowerOff (default)
+      CrossMuxSsd1677CleanPolicy::Legacy,  // cleanPolicy (default)
+      true,  // byteAddressedRamX: SSD1683 byte-column RAM addressing (GxEPD2 GYE042A87 parity)
   };
   return cfg;
 }
@@ -329,6 +333,40 @@ void CrossMuxSsd1677Driver::initController(EpdBus& bus) {
 }
 
 void CrossMuxSsd1677Driver::setRamArea(EpdBus& bus, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  if (_cfg.byteAddressedRamX) {
+    // SSD1683 (NM-EPD-420 / GYE042A87): X addresses are byte columns with
+    // single-byte 0x44/0x4E parameters, Y is pixel rows; data entry 0x03
+    // (X-inc/Y-inc) fills top-down. GxEPD2_420_GYE042A87::_setPartialRamArea
+    // parity. mirrorX/mirrorY flip the entry-direction bits and swap the
+    // counter origins, no gate-reversal remap (that is an X4 panel quirk).
+    const uint8_t dataEntry = (_mirrorX ? 0x00 : 0x01) | (_mirrorY ? 0x00 : 0x02);
+    const uint8_t xb0 = static_cast<uint8_t>(x / 8), xb1 = static_cast<uint8_t>((x + w - 1) / 8);
+    const uint8_t xStart = _mirrorX ? xb1 : xb0;
+    const uint8_t xEnd = _mirrorX ? xb0 : xb1;
+    const uint16_t yStart = _mirrorY ? (y + h - 1) : y;
+    const uint16_t yEnd = _mirrorY ? y : (y + h - 1);
+
+    bus.cmd(CMD_DATA_ENTRY_MODE);
+    bus.data(dataEntry);
+
+    bus.cmd(CMD_SET_RAM_X_RANGE);
+    bus.data(xStart);
+    bus.data(xEnd);
+
+    bus.cmd(CMD_SET_RAM_Y_RANGE);
+    bus.data(yStart % 256);
+    bus.data(yStart / 256);
+    bus.data(yEnd % 256);
+    bus.data(yEnd / 256);
+
+    bus.cmd(CMD_SET_RAM_X_COUNTER);
+    bus.data(xStart);
+
+    bus.cmd(CMD_SET_RAM_Y_COUNTER);
+    bus.data(yStart % 256);
+    bus.data(yStart / 256);
+    return;
+  }
   // Data-entry bit0 = X direction (1=increment, 0=decrement); bit1 = Y (0=dec).
   // Default is X-increment, Y-decrement. mirrorX reverses the column direction so
   // the controller fills RAM right-to-left, completing a horizontal flip (and,
@@ -389,7 +427,10 @@ void CrossMuxSsd1677Driver::refresh(EpdBus& bus, RefreshMode mode, bool turnOff,
 #endif
   bus.cmd(CMD_DISPLAY_UPDATE_CTRL1);
   bus.data((mode == RefreshMode::Fast) ? CTRL1_NORMAL : CTRL1_BYPASS_RED);
-  if (_cfg.cleanPolicy != CrossMuxSsd1677CleanPolicy::Legacy) {
+  if (_cfg.cleanPolicy != CrossMuxSsd1677CleanPolicy::Legacy || _cfg.byteAddressedRamX) {
+    // SSD1683 GxEPD2 parity: 0x21 always takes two data bytes (0x40,0x00 full /
+    // 0x00,0x00 partial); the reset default already covers the second byte, but
+    // write it explicitly like the Metalio BSP path.
     bus.data(0x00);  // second CTRL1 byte, per Metalio BSP
     if (!_customLutActive && mode != RefreshMode::Half) {
       bus.cmd(CMD_TEMP_SENSOR_CONTROL);

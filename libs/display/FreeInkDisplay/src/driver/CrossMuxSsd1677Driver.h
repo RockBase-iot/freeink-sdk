@@ -66,6 +66,11 @@ struct CrossMuxSsd1677Config {
   uint8_t powerOffSequence = 0x03;     // CTRL2, board-specific oscillator/analog shutdown
   uint8_t borderWaveformPowerOff = 0;  // 0 keeps borderWaveformInit
   CrossMuxSsd1677CleanPolicy cleanPolicy = CrossMuxSsd1677CleanPolicy::Legacy;
+  // SSD1683 panels (NM-EPD-420 / GYE042A87) address RAM X in byte columns with
+  // single-byte 0x44/0x4E parameters and X-inc/Y-inc data entry, unlike the
+  // SSD1677's pixel-based two-byte X with Y-decrement. Reference: GxEPD2
+  // GxEPD2_420_GYE042A87::_setPartialRamArea.
+  bool byteAddressedRamX = false;
 };
 
 // Standard config (Xteink X4 / GDEQ0426T82). Panel mounting (mirror/180°) is NOT
