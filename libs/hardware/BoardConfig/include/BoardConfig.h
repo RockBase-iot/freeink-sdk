@@ -566,6 +566,15 @@ struct SdPins {
   // GPIO5, which gates the card while held LOW); the sleep path must then drive it
   // HIGH to power the card down. Defaulted so existing initializers stay valid.
   bool powerActiveHigh = true;
+  // Chip-select of a co-device sharing the SD SPI bus (e.g. NM-EPD-420's SX1262
+  // LoRa modem, NSS=GPIO8). Driven HIGH before the card probe so the co-device
+  // stays off the bus. PIN_UNASSIGNED (default) = no co-device.
+  int8_t coCs = PIN_UNASSIGNED;
+  // Power-enable of the bus co-device, driven LOW before the card probe so an
+  // unpowered module cannot half-power from a floating enable and clamp the
+  // shared SPI lines through its ESD diodes (biscuit parkNmSharedSpiDevices
+  // parity: NM-EPD-420 LoRa EN=GPIO47). PIN_UNASSIGNED (default) = none.
+  int8_t coPower = PIN_UNASSIGNED;
 };
 
 // 4-bit SDMMC/SDIO wiring (e.g. de-link). SdFat can't drive SDIO, so a board with
@@ -2020,7 +2029,11 @@ constexpr BoardProfile NM_EPD_420 = {
     10000000,  // displaySpiHz: conservative start; the panel and SD share SPI wiring (raise after validation)
     // microSD on the peripheral SPI bus. separateSpi=true so the SD bus is its own
     // controller; powerEnable unassigned (the card is always powered on this board).
-    {9, 11, 10, 7, PIN_UNASSIGNED, true, 0},
+    // The SX1262 LoRa modem shares this bus — deselect it (coCs=NSS=GPIO8) and
+    // hard-power it down (coPower=LoRa EN=GPIO47, biscuit park parity) so the
+    // unpowered module cannot clamp the shared lines. 10 MHz: conservative start
+    // on the shared wiring, matching the display clock (raise after validation).
+    {9, 11, 10, 7, PIN_UNASSIGNED, true, 10000000, true, 8, 47},
     // Two active-low buttons. DigitalTwoButton reads only up/down: USER = up (45),
     // BOOT = down (0). back/confirm/power come from holds in the input layer, so
     // those InputPins stay unassigned.

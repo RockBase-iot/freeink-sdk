@@ -171,6 +171,20 @@ bool SDCardManager::begin() {
     digitalWrite(BoardConfig::ACTIVE.display.cs, HIGH);
   }
 
+  // Co-device on the SD bus (e.g. NM-EPD-420's SX1262 LoRa modem): power it down
+  // first (a floating enable can half-power the module, whose I/O then clamps the
+  // shared lines), then deselect it, before probing the card. biscuit
+  // parkNmSharedSpiDevices parity.
+  if (BoardConfig::ACTIVE.sd.coPower >= 0) {
+    pinMode(BoardConfig::ACTIVE.sd.coPower, OUTPUT);
+    digitalWrite(BoardConfig::ACTIVE.sd.coPower, LOW);
+    delay(5);  // let the co-device rails collapse before clocking the bus
+  }
+  if (BoardConfig::ACTIVE.sd.coCs >= 0) {
+    pinMode(BoardConfig::ACTIVE.sd.coCs, OUTPUT);
+    digitalWrite(BoardConfig::ACTIVE.sd.coCs, HIGH);
+  }
+
   // A board with a dedicated SD SPI bus (separateSpi) MUST NOT reconfigure the
   // global SPI object: that bus belongs to the display, and Arduino's second
   // SPI.begin() won't remap its pins, so the panel would end up transmitting on
@@ -181,8 +195,31 @@ bool SDCardManager::begin() {
   if (BoardConfig::ACTIVE.sd.separateSpi && SD_SCLK >= 0 && SD_MOSI >= 0 && SD_MISO >= 0) {
     static SPIClass dedicatedSdSpi(HSPI);
     // End each transaction in the task that started it; the bus itself remains dedicated HSPI.
-    cardReady = dedicatedSdSpi.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS) &&
-                sd.begin(SdSpiConfig(SD_CS, SHARED_SPI | USER_SPI_BEGIN, SPI_FQ, &dedicatedSdSpi));
+    // Split the two-sided init so a silent SPI-bus start failure is
+    // distinguishable from an SdFat card-detect failure.
+    const bool spiBusOk = dedicatedSdSpi.begin(SD_SCLK, SD_MISO, SD_MOSI);
+    if (Serial)
+      Serial.printf("[%lu] [SD] dedicated HSPI begin: %s (sclk=%d miso=%d mosi=%d)\n", millis(),
+                    spiBusOk ? "ok" : "FAILED", SD_SCLK, SD_MISO, SD_MOSI);
+    if (spiBusOk) {
+      // Split card init from FAT volume mount: a fast "failure" with err=0x00
+      // means the card answered and the volume mount is what failed (e.g. a
+      // GPT-partitioned card, which SdFat does not parse — reformat as MBR),
+      // not the electrical layer.
+      const bool cardOk = sd.cardBegin(SdSpiConfig(SD_CS, SHARED_SPI | USER_SPI_BEGIN, SPI_FQ, &dedicatedSdSpi));
+      auto* card = sd.card();
+      if (Serial)
+        Serial.printf("[%lu] [SD] cardBegin: %s (err=0x%02X data=0x%02X type=%u sectors=%llu)\n", millis(),
+                      cardOk ? "ok" : "FAILED", sd.sdErrorCode(), sd.sdErrorData(),
+                      card ? card->type() : 0,
+                      card ? static_cast<unsigned long long>(card->sectorCount()) : 0ULL);
+      if (cardOk) {
+        cardReady = sd.volumeBegin();
+        if (Serial)
+          Serial.printf("[%lu] [SD] volumeBegin: %s (fatType=%u)\n", millis(), cardReady ? "ok" : "FAILED",
+                        sd.vol() ? sd.vol()->fatType() : 0);
+      }
+    }
   } else {
 #endif
     if (SD_SCLK >= 0 && SD_MOSI >= 0 && SD_MISO >= 0) {
